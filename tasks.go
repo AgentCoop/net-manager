@@ -59,9 +59,8 @@ func (mngr *connManager) ReadTask(j job.JobInterface) (job.Init, job.Run, job.Ca
 		case DataFrameKind:
 			stream.df.Capture(data)
 			if stream.df.IsFullFrame() {
-				f := stream.df.GetFrame()
-				stream.onDataFrameChan <- f
-				<-stream.onDataFrameChan
+				stream.recvDataFrameChan <- stream.df
+				<-stream.recvDataFrameSyncChan
 			}
 		case DataRawKind:
 			stream.onRawChan <- data
@@ -74,8 +73,8 @@ func (mngr *connManager) ReadTask(j job.JobInterface) (job.Init, job.Run, job.Ca
 		stream := j.GetValue().(*streamConn)
 		mngr := stream.connManager
 		close(stream.readChan)
-		close(stream.onDataFrameChan)
-		close(stream.onDataFrameDoneChan)
+		close(stream.recvDataFrameChan)
+		close(stream.recvDataFrameSyncChan)
 		mngr.delConn(stream)
 		stream.conn.Close()
 	}
@@ -102,15 +101,16 @@ func (mngr *connManager) WriteTask(j job.JobInterface) (job.Init, job.Run, job.C
 				task.Assert(err)
 			}
 			// Sync with the writer
-			stream.writeDoneChan <- n
+			stream.writeSyncChan <- n
 			atomic.AddUint64(&stream.connManager.perfmetrics.bytesSent, uint64(n))
+		default:
 		}
 		task.Tick()
 	}
 	cancel := func()  {
 		stream := j.GetValue().(*streamConn)
 		close(stream.writeChan)
-		close(stream.writeDoneChan)
+		close(stream.writeSyncChan)
 		stream.conn.Close()
 	}
 	return nil, run, cancel

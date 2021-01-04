@@ -1,9 +1,21 @@
 package netmanager
 
 import (
+	"github.com/AgentCoop/go-work"
 	"sync"
 	"net"
 )
+
+type ConnManager interface {
+	ConnectTask(job.JobInterface) (job.Init, job.Run, job.Cancel)
+	AcceptTask(job.JobInterface) (job.Init, job.Run, job.Cancel)
+	ReadTask(job.JobInterface) (job.Init, job.Run, job.Cancel)
+	WriteTask(job.JobInterface) (job.Init, job.Run, job.Cancel)
+}
+
+type NetManager interface {
+
+}
 
 type streamMap map[string]*streamConn
 type listenAddrMap map[string]net.Listener
@@ -43,6 +55,9 @@ func (n *netManager) NewConnManager(network string, address string) *connManager
 	mngr.ReadbufLen = 4096
 	mngr.perfmetrics = &perfmetrics{}
 	n.connManager = append(n.connManager, mngr)
+	mngr.lisMap = make(listenAddrMap)
+	mngr.inbound = make(streamMap)
+	mngr.outbound = make(streamMap)
 	return mngr
 }
 
