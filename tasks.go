@@ -6,7 +6,7 @@ import (
 	"sync/atomic"
 )
 
-func (mngr *connManager) ConnectTask(j job.JobInterface) (job.Init, job.Run, job.Cancel) {
+func (mngr *connManager) ConnectTask(j job.JobInterface) (job.Init, job.Run, job.Finalize) {
 	run := func(task *job.TaskInfo) {
 		conn, err := net.Dial(mngr.network, mngr.addr)
 		task.Assert(err)
@@ -21,7 +21,7 @@ func (mngr *connManager) ConnectTask(j job.JobInterface) (job.Init, job.Run, job
 	return nil, run, nil
 }
 
-func (mngr *connManager) AcceptTask(j job.JobInterface) (job.Init, job.Run, job.Cancel) {
+func (mngr *connManager) AcceptTask(j job.JobInterface) (job.Init, job.Run, job.Finalize) {
 	run := func(task *job.TaskInfo) {
 		var lis net.Listener
 		key := mngr.network + mngr.addr
@@ -46,7 +46,7 @@ func (mngr *connManager) AcceptTask(j job.JobInterface) (job.Init, job.Run, job.
 	return nil, run, nil
 }
 
-func (mngr *connManager) ReadTask(j job.JobInterface) (job.Init, job.Run, job.Cancel) {
+func (mngr *connManager) ReadTask(j job.JobInterface) (job.Init, job.Run, job.Finalize) {
 	run := func(task *job.TaskInfo) {
 		stream := j.GetValue().(*streamConn)
 		n, err := stream.conn.Read(stream.readbuf)
@@ -69,7 +69,7 @@ func (mngr *connManager) ReadTask(j job.JobInterface) (job.Init, job.Run, job.Ca
 
 		task.Tick()
 	}
-	cancel := func() {
+	cancel := func(task *job.TaskInfo) {
 		stream := j.GetValue().(*streamConn)
 		mngr := stream.connManager
 		close(stream.readChan)
@@ -81,7 +81,7 @@ func (mngr *connManager) ReadTask(j job.JobInterface) (job.Init, job.Run, job.Ca
 	return nil, run, cancel
 }
 
-func (mngr *connManager) WriteTask(j job.JobInterface) (job.Init, job.Run, job.Cancel) {
+func (mngr *connManager) WriteTask(j job.JobInterface) (job.Init, job.Run, job.Finalize) {
 	run := func(task *job.TaskInfo) {
 		stream := j.GetValue().(*streamConn)
 		var n int
@@ -107,7 +107,7 @@ func (mngr *connManager) WriteTask(j job.JobInterface) (job.Init, job.Run, job.C
 		}
 		task.Tick()
 	}
-	cancel := func()  {
+	cancel := func(task *job.TaskInfo)  {
 		stream := j.GetValue().(*streamConn)
 		close(stream.writeChan)
 		close(stream.writeSyncChan)

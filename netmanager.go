@@ -6,11 +6,15 @@ import (
 	"net"
 )
 
+const (
+	DefaultReadBufLen = 4096
+)
+
 type ConnManager interface {
-	ConnectTask(job.JobInterface) (job.Init, job.Run, job.Cancel)
-	AcceptTask(job.JobInterface) (job.Init, job.Run, job.Cancel)
-	ReadTask(job.JobInterface) (job.Init, job.Run, job.Cancel)
-	WriteTask(job.JobInterface) (job.Init, job.Run, job.Cancel)
+	ConnectTask(job.JobInterface) (job.Init, job.Run, job.Finalize)
+	AcceptTask(job.JobInterface) (job.Init, job.Run, job.Finalize)
+	ReadTask(job.JobInterface) (job.Init, job.Run, job.Finalize)
+	WriteTask(job.JobInterface) (job.Init, job.Run, job.Finalize)
 }
 
 type NetManager interface {
@@ -52,7 +56,7 @@ func NewNetworkManager() *netManager {
 
 func (n *netManager) NewConnManager(network string, address string) *connManager {
 	mngr := &connManager{network: network, addr: address}
-	mngr.ReadbufLen = 4096
+	mngr.ReadbufLen = DefaultReadBufLen
 	mngr.perfmetrics = &perfmetrics{}
 	n.connManager = append(n.connManager, mngr)
 	mngr.lisMap = make(listenAddrMap)
