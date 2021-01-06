@@ -1,27 +1,31 @@
 package netmanager
 
 import (
+	"fmt"
 	"github.com/AgentCoop/go-work"
-	"sync"
+	"github.com/google/go-cmp/cmp"
 	"net"
+	"sync"
 )
 
 const (
 	DefaultReadBufLen = 4096
 )
 
+// Governs inbound/outbound connections for an TCP endpoint
 type ConnManager interface {
 	ConnectTask(job.JobInterface) (job.Init, job.Run, job.Finalize)
 	AcceptTask(job.JobInterface) (job.Init, job.Run, job.Finalize)
-	ReadTask(job.JobInterface) (job.Init, job.Run, job.Finalize)
-	WriteTask(job.JobInterface) (job.Init, job.Run, job.Finalize)
+	//ReadTask(job.JobInterface) (job.Init, job.Run, job.Finalize)
+	//WriteTask(job.JobInterface) (job.Init, job.Run, job.Finalize)
+	GetNetworkManager() NetManager
 }
 
 type NetManager interface {
-
+	NewProxyConn(upstreamServer *ServerNet, downstream *StreamConn) *proxyConn
 }
 
-type streamMap map[string]*streamConn
+type streamMap map[string]*StreamConn
 type listenAddrMap map[string]net.Listener
 
 type perfmetrics struct {
@@ -35,6 +39,7 @@ type netManager struct {
 }
 
 type connManager struct {
+	netManager *netManager
 	inboundMux      sync.RWMutex
 	inbound         streamMap
 	outboundMux     sync.RWMutex
@@ -45,55 +50,41 @@ type connManager struct {
 	network    string
 	addr       string
 
+	tcpAddr *net.TCPAddr
 	perfmetrics *perfmetrics
 }
 
 func NewNetworkManager() *netManager {
 	n := &netManager{}
-	n.connManager = make([]*connManager, 1)
 	return n
 }
 
-func (n *netManager) NewConnManager(network string, address string) *connManager {
-	mngr := &connManager{network: network, addr: address}
-	mngr.ReadbufLen = DefaultReadBufLen
-	mngr.perfmetrics = &perfmetrics{}
-	n.connManager = append(n.connManager, mngr)
-	mngr.lisMap = make(listenAddrMap)
-	mngr.inbound = make(streamMap)
-	mngr.outbound = make(streamMap)
-	return mngr
+func (mngr *connManager) GetNetworkManager() NetManager {
+	return mngr.netManager
 }
 
-func (mngr *connManager) addConn(c *streamConn) {
-	var l *sync.RWMutex
-	var connMap streamMap
-	switch c.typ {
-	case Inbound:
-		l = &mngr.inboundMux
-		connMap = mngr.inbound
-	case Outbound:
-		l = &mngr.outboundMux
-		connMap = mngr.outbound
+func (n *netManager) reuseOrNewConn(endpoint *net.TCPAddr) (*StreamConn, error) {
+	for _, connMngr := range n.connManager {
+		if cmp.Equal(connMngr.tcpAddr, endpoint) {
+			for _, out := range connMngr.outbound {
+				if out.State == IdleConn && out.IsConnected() {
+					fmt.Printf(" !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Usse idle conn\n")
+					//ConnCheck(out.conn)
+					out.State = InuseConn
+					//n, err := out.conn.Write([]byte("hello"))
+					//fmt.Printf("done sending to upstream %d err %s", n, err)
+					return out, nil
+				}
+			}
+		}
 	}
-	l.Lock()
-	defer l.Unlock()
-	connMap[c.Key()] = c
-}
+	// If none were found open a new one
+	conn, err := net.DialTCP(endpoint.Network(), nil, endpoint)
+	if err != nil { return nil, err }
 
-func (mngr *connManager) delConn(c *streamConn) {
-	var l *sync.RWMutex
-	var connMap streamMap
-	switch c.typ {
-	case Inbound:
-		l = &mngr.inboundMux
-		connMap = mngr.inbound
-	case Outbound:
-		l = &mngr.outboundMux
-		connMap = mngr.outbound
-	}
-	l.Lock()
-	defer l.Unlock()
-	delete(connMap, c.Key())
-	c.conn.Close()
+	connMngr := n.NewConnManager("", "")
+	connMngr.tcpAddr = endpoint
+	stream := connMngr.NewStreamConn(conn, Outbound)
+
+	return stream,nil
 }
