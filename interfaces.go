@@ -6,8 +6,8 @@ import (
 )
 
 type ConnManager interface {
-	ConnectTask(job.JobInterface) (job.Init, job.Run, job.Finalize)
-	AcceptTask(job.JobInterface) (job.Init, job.Run, job.Finalize)
+	ConnectTask(job.Job) (job.Init, job.Run, job.Finalize)
+	AcceptTask(job.Job) (job.Init, job.Run, job.Finalize)
 	GetNetworkManager() NetManager
 }
 
@@ -35,10 +35,10 @@ type Stream interface {
 type ProxyConn interface {
 	Upstream() *stream
 	Downstream() *stream
-	ProxyReadUpstreamTask(j job.JobInterface) (job.Init, job.Run, job.Finalize)
-	ProxyReadDownstreamTask(j job.JobInterface) (job.Init, job.Run, job.Finalize)
-	ProxyWriteUpstreamTask(j job.JobInterface) (job.Init, job.Run, job.Finalize)
-	ProxyWriteDownstreamTask(j job.JobInterface) (job.Init, job.Run, job.Finalize)
+	ProxyReadUpstreamTask(j job.Job) (job.Init, job.Run, job.Finalize)
+	ProxyReadDownstreamTask(j job.Job) (job.Init, job.Run, job.Finalize)
+	ProxyWriteUpstreamTask(j job.Job) (job.Init, job.Run, job.Finalize)
+	ProxyWriteDownstreamTask(j job.Job) (job.Init, job.Run, job.Finalize)
 }
 
 func NewProxyConn(upstreamServer *ServerNet, downstream Stream) *proxyConn {

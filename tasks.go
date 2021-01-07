@@ -7,8 +7,8 @@ import (
 	"sync/atomic"
 )
 
-func (mngr *connManager) ConnectTask(j job.JobInterface) (job.Init, job.Run, job.Finalize) {
-	run := func(task *job.TaskInfo) {
+func (mngr *connManager) ConnectTask(j job.Job) (job.Init, job.Run, job.Finalize) {
+	run := func(task job.Task) {
 		conn, err := net.Dial(mngr.network, mngr.addr)
 		task.Assert(err)
 
@@ -22,8 +22,8 @@ func (mngr *connManager) ConnectTask(j job.JobInterface) (job.Init, job.Run, job
 	return nil, run, nil
 }
 
-func (mngr *connManager) AcceptTask(j job.JobInterface) (job.Init, job.Run, job.Finalize) {
-	run := func(task *job.TaskInfo) {
+func (mngr *connManager) AcceptTask(j job.Job) (job.Init, job.Run, job.Finalize) {
+	run := func(task job.Task) {
 		var lis net.Listener
 		key := mngr.network + mngr.addr
 		if _, ok := mngr.lisMap[key]; ! ok {
@@ -47,7 +47,7 @@ func (mngr *connManager) AcceptTask(j job.JobInterface) (job.Init, job.Run, job.
 	return nil, run, nil
 }
 
-func readCancel(stream *stream, task *job.TaskInfo) {
+func readCancel(stream *stream, task job.Task) {
 	fmt.Printf("close read\n")
 	mngr := stream.connManager
 	close(stream.readChan)
@@ -56,7 +56,7 @@ func readCancel(stream *stream, task *job.TaskInfo) {
 	mngr.delConn(stream)
 }
 
-func read(stream *stream, task *job.TaskInfo) {
+func read(stream *stream, task job.Task) {
 	n, err := stream.conn.Read(stream.readbuf)
 	task.Assert(err)
 
@@ -76,26 +76,26 @@ func read(stream *stream, task *job.TaskInfo) {
 	}
 }
 
-func (stream *stream) ReadOnStreamTask(j job.JobInterface) (job.Init, job.Run, job.Finalize) {
-	init := func(task *job.TaskInfo){
+func (stream *stream) ReadOnStreamTask(j job.Job) (job.Init, job.Run, job.Finalize) {
+	init := func(task job.Task){
 	}
-	run := func(task *job.TaskInfo) {
+	run := func(task job.Task) {
 		read(stream, task)
 		task.Tick()
 	}
-	fin := func(task *job.TaskInfo) {
+	fin := func(task job.Task) {
 		readCancel(stream, task)
 	}
 	return init, run, fin
 }
 
-func ReadTask(j job.JobInterface) (job.Init, job.Run, job.Finalize) {
-	run := func(task *job.TaskInfo) {
+func ReadTask(j job.Job) (job.Init, job.Run, job.Finalize) {
+	run := func(task job.Task) {
 		s := j.GetValue().(*stream)
 		read(s, task)
 		task.Tick()
 	}
-	fin := func(task *job.TaskInfo) {
+	fin := func(task job.Task) {
 		s := j.GetValue()
 		if s == nil { return }
 		readCancel(s.(*stream), task)
@@ -103,7 +103,7 @@ func ReadTask(j job.JobInterface) (job.Init, job.Run, job.Finalize) {
 	return nil, run, fin
 }
 
-func write(s *stream, task *job.TaskInfo) {
+func write(s *stream, task job.Task) {
 	var n int
 	var err error
 
@@ -127,30 +127,30 @@ func write(s *stream, task *job.TaskInfo) {
 	}
 }
 
-func writeCancel(stream *stream, task *job.TaskInfo) {
+func writeCancel(stream *stream, task job.Task) {
 	fmt.Printf("close write\n")
 	close(stream.writeChan)
 	close(stream.writeSyncChan)
 }
 
-func (s *stream) WriteOnStreamTask(j job.JobInterface) (job.Init, job.Run, job.Finalize) {
-	run := func(task *job.TaskInfo) {
+func (s *stream) WriteOnStreamTask(j job.Job) (job.Init, job.Run, job.Finalize) {
+	run := func(task job.Task) {
 		write(s, task)
 		task.Tick()
 	}
-	fin := func(task *job.TaskInfo) {
+	fin := func(task job.Task) {
 		writeCancel(s, task)
 	}
 	return nil, run, fin
 }
 
-func WriteTask(j job.JobInterface) (job.Init, job.Run, job.Finalize) {
-	run := func(task *job.TaskInfo) {
+func WriteTask(j job.Job) (job.Init, job.Run, job.Finalize) {
+	run := func(task job.Task) {
 		s := j.GetValue().(*stream)
 		write(s, task)
 		task.Tick()
 	}
-	fin := func(task *job.TaskInfo)  {
+	fin := func(task job.Task)  {
 		s := j.GetValue()
 		if s == nil { return }
 		writeCancel(s.(*stream), task)
