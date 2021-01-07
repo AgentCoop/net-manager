@@ -52,10 +52,10 @@ type StreamConn struct {
 	writeChan     chan interface{}
 	writeSyncChan chan int
 
-	readChan        chan interface{}
-	newConnChan     chan struct{}
-	onConnCloseChan chan struct{}
-
+	closechanonce	sync.Once
+	readChan      chan interface{}
+	newConnChan   chan struct{}
+	connCloseChan chan struct{}
 	recvDataFrameChan     chan netdataframe.DataFrame
 	recvDataFrameSyncChan chan struct{}
 	recvRawChan     chan []byte
@@ -126,26 +126,53 @@ func (s *StreamConn) IsConnected() bool {
 	return connCheck(s.conn)
 }
 
+func (s *StreamConn) CloseWithReuse() {
+	s.closeChans()
+	s.State = IdleConn
+}
+
+func (s *StreamConn) Available() bool {
+	return s.State == IdleConn && s.IsConnected()
+}
+
+func (s *StreamConn) Refresh() {
+	s.initChans()
+}
+
+func (s *StreamConn) initChans() {
+	s.writeChan = make(chan interface{})
+	s.writeSyncChan = make(chan int)
+	s.readChan = make(chan interface{})
+	s.newConnChan = make(chan struct{}, 1)
+	//s.connCloseChan = make(chan struct{}, 1)
+	s.recvDataFrameChan = make(chan netdataframe.DataFrame)
+	s.recvDataFrameSyncChan = make(chan struct{})
+	s.recvRawChan = make(chan []byte)
+	s.recvRawSyncChan = make(chan struct{})
+}
+
+func (s *StreamConn) _closeChanFn() {
+	close(s.writeChan)
+	close(s.writeSyncChan)
+	close(s.readChan)
+	close(s.newConnChan)
+	//close(s.connCloseChan)
+	close(s.recvDataFrameChan)
+	close(s.recvDataFrameSyncChan)
+	close(s.recvRawChan)
+	close(s.recvRawSyncChan)
+}
+
+func (s *StreamConn) closeChans() {
+	s.closechanonce.Do(s._closeChanFn)
+}
+
 func (mngr *connManager) NewStreamConn(conn net.Conn, typ ConnType) *StreamConn {
 	stream := &StreamConn{conn: conn, typ: typ, State: InuseConn}
-
-	stream.writeChan = make(chan interface{})
-	stream.writeSyncChan = make(chan int)
-	stream.readChan = make(chan interface{})
-
-	stream.newConnChan = make(chan struct{}, 1)
-	stream.onConnCloseChan = make(chan struct{}, 1)
-
-	stream.recvDataFrameChan = make(chan netdataframe.DataFrame)
-	stream.recvDataFrameSyncChan = make(chan struct{})
-
-	stream.recvRawChan = make(chan []byte)
-	stream.recvRawSyncChan = make(chan struct{})
-
+	stream.initChans()
 	stream.connManager = mngr
 	stream.df = netdataframe.NewDataFrame()
 	stream.readbuf = make([]byte, mngr.ReadbufLen)
-
 	mngr.addConn(stream)
 	return stream
 }

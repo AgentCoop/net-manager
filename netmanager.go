@@ -67,10 +67,11 @@ func (n *netManager) reuseOrNewConn(endpoint *net.TCPAddr) (*StreamConn, error) 
 	for _, connMngr := range n.connManager {
 		if cmp.Equal(connMngr.tcpAddr, endpoint) {
 			for _, out := range connMngr.outbound {
-				if out.State == IdleConn && out.IsConnected() {
+				if out.Available() {
 					fmt.Printf(" !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Usse idle conn\n")
 					//ConnCheck(out.conn)
-					out.State = InuseConn
+					out.Refresh()
+					//out.State = InuseConn
 					//n, err := out.conn.Write([]byte("hello"))
 					//fmt.Printf("done sending to upstream %d err %s", n, err)
 					return out, nil
