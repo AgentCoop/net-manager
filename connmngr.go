@@ -1,6 +1,10 @@
 package netmanager
 
-import "sync"
+import (
+	netdataframe "github.com/AgentCoop/net-dataframe"
+	"net"
+	"sync"
+)
 
 func (n *netManager) NewConnManager(network string, address string) *connManager {
 	mngr := &connManager{network: network, addr: address}
@@ -14,7 +18,17 @@ func (n *netManager) NewConnManager(network string, address string) *connManager
 	return mngr
 }
 
-func (mngr *connManager) addConn(c *StreamConn) {
+func (mngr *connManager) NewStreamConn(conn net.Conn, typ ConnType) *stream {
+	stream := &stream{conn: conn, typ: typ, state: InuseConn}
+	stream.initChans()
+	stream.connManager = mngr
+	stream.frame = netdataframe.NewDataFrame()
+	stream.readbuf = make([]byte, mngr.ReadbufLen)
+	mngr.addConn(stream)
+	return stream
+}
+
+func (mngr *connManager) addConn(c *stream) {
 	var l *sync.RWMutex
 	var connMap streamMap
 	switch c.typ {
@@ -30,7 +44,7 @@ func (mngr *connManager) addConn(c *StreamConn) {
 	connMap[c.Key()] = c
 }
 
-func (mngr *connManager) delConn(c *StreamConn) {
+func (mngr *connManager) delConn(c *stream) {
 	var l *sync.RWMutex
 	var connMap streamMap
 	switch c.typ {

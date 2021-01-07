@@ -7,21 +7,8 @@ import (
 )
 
 type ConnType int
-type ConnState int
+type StreamState int
 type DataKind int
-
-//type StreamConn interface {
-//	Write() chan<- interface{}
-//	WriteSync() int
-//	NewConn() <-chan struct{}
-//	RecvDataFrame() <-chan netdataframe.DataFrame
-//	RecvDataFrameSync()
-//	RecvRaw() <-chan []byte
-//	RecvRawSync()
-//	GetConnManager() ConnManager
-//	GetDataKind() DataKind
-//	SetDataKind(DataKind)
-//}
 
 const (
 	Inbound ConnType = iota
@@ -29,7 +16,7 @@ const (
 )
 
 const (
-	InuseConn ConnState = iota
+	InuseConn StreamState = iota
 	IdleConn
 )
 
@@ -42,151 +29,139 @@ func (s ConnType) String() string {
 	return [...]string{"Inbound", "Outbound"}[s]
 }
 
-func (s ConnState) String() string {
-	return [...]string{"Active", "Closed"}[s]
+func (s StreamState) String() string {
+	return [...]string{"InUse", "Idle"}[s]
 }
 
-type StreamConn struct {
+type stream struct {
 	conn net.Conn
 
-	writeChan     chan interface{}
-	writeSyncChan chan int
-
-	closechanonce	sync.Once
-	readChan      chan interface{}
-	newConnChan   chan struct{}
-	connCloseChan chan struct{}
+	writeChan             chan interface{}
+	writeSyncChan         chan int
+	chanclose             sync.Once
+	readChan              chan interface{}
+	newConnChan           chan struct{}
+	connCloseChan         chan struct{}
 	recvDataFrameChan     chan netdataframe.DataFrame
 	recvDataFrameSyncChan chan struct{}
-	recvRawChan     chan []byte
-	recvRawSyncChan chan struct{}
+	recvRawChan           chan []byte
+	recvRawSyncChan       chan struct{}
 
 	connManager *connManager
-	State       ConnState
+	statemux    sync.RWMutex
+	state       StreamState
 	typ         ConnType
-	DataKind    DataKind
-	df          netdataframe.DataFrame
+	dataKind    DataKind
+	frame       netdataframe.DataFrame
 	readbuf     []byte
-
-	value   interface{}
-	ValueMu sync.RWMutex
-
-	closeOnce sync.Once
+	connclose   sync.Once
 }
 
-func (s *StreamConn) Read() <-chan interface{} {
+func (s *stream) Read() <-chan interface{} {
 	return s.readChan
 }
 
-func (s *StreamConn) Write() chan<- interface{} {
+func (s *stream) Write() chan<- interface{} {
 	return s.writeChan
 }
 
-func (s *StreamConn) WriteSync() int {
+func (s *stream) WriteSync() int {
 	return <-s.writeSyncChan
 }
 
-func (s *StreamConn) RecvDataFrame() <-chan netdataframe.DataFrame {
+func (s *stream) RecvDataFrame() <-chan netdataframe.DataFrame {
 	return s.recvDataFrameChan
 }
 
-func (s *StreamConn) RecvDataFrameSync() {
+func (s *stream) RecvDataFrameSync() {
 	s.recvDataFrameSyncChan <- struct{}{}
 }
 
-func (s *StreamConn) RecvRaw() <-chan []byte {
+func (s *stream) RecvRaw() <-chan []byte {
 	return s.recvRawChan
 }
 
-func (s *StreamConn) RecvRawSync() {
+func (s *stream) RecvRawSync() {
 	s.recvRawSyncChan <- struct{}{}
 }
 
-func (s *StreamConn) NewConn() <-chan struct{} {
+func (s *stream) NewConn() <-chan struct{} {
 	return s.newConnChan
 }
 
-func (s *StreamConn) GetConnManager() ConnManager {
+func (s *stream) GetConnManager() ConnManager {
 	return s.connManager
 }
 
-func (s *StreamConn) GetDataKind() DataKind {
-	return s.DataKind
-}
-
-func (s *StreamConn) SetDataKind(kind DataKind) {
-	s.DataKind = kind
-}
-
-func (s *StreamConn) GetConn() net.Conn {
+func (s *stream) GetConn() net.Conn {
 	return s.conn
 }
 
-func (s *StreamConn) IsConnected() bool {
+func (s *stream) IsConnected() bool {
 	return connCheck(s.conn)
 }
 
-func (s *StreamConn) CloseWithReuse() {
+func (s *stream) CloseWithReuse() {
 	s.closeChans()
-	s.State = IdleConn
+	s.SetState(IdleConn)
 }
 
-func (s *StreamConn) Available() bool {
-	return s.State == IdleConn && s.IsConnected()
+func (s *stream) CanBeReused() bool {
+	return s.GetState() == IdleConn && s.IsConnected()
 }
 
-func (s *StreamConn) Refresh() {
+func (s *stream) Refresh() {
 	s.initChans()
 }
 
-func (s *StreamConn) initChans() {
+func (s *stream) initChans() {
 	s.writeChan = make(chan interface{})
 	s.writeSyncChan = make(chan int)
 	s.readChan = make(chan interface{})
 	s.newConnChan = make(chan struct{}, 1)
-	//s.connCloseChan = make(chan struct{}, 1)
 	s.recvDataFrameChan = make(chan netdataframe.DataFrame)
 	s.recvDataFrameSyncChan = make(chan struct{})
 	s.recvRawChan = make(chan []byte)
 	s.recvRawSyncChan = make(chan struct{})
 }
 
-func (s *StreamConn) _closeChanFn() {
+func (s *stream) closeChanFn() {
 	close(s.writeChan)
 	close(s.writeSyncChan)
 	close(s.readChan)
 	close(s.newConnChan)
-	//close(s.connCloseChan)
 	close(s.recvDataFrameChan)
 	close(s.recvDataFrameSyncChan)
 	close(s.recvRawChan)
 	close(s.recvRawSyncChan)
 }
 
-func (s *StreamConn) closeChans() {
-	s.closechanonce.Do(s._closeChanFn)
+func (s *stream) closeChans() {
+	s.chanclose.Do(s.closeChanFn)
 }
 
-func (mngr *connManager) NewStreamConn(conn net.Conn, typ ConnType) *StreamConn {
-	stream := &StreamConn{conn: conn, typ: typ, State: InuseConn}
-	stream.initChans()
-	stream.connManager = mngr
-	stream.df = netdataframe.NewDataFrame()
-	stream.readbuf = make([]byte, mngr.ReadbufLen)
-	mngr.addConn(stream)
-	return stream
-}
-
-func (c *StreamConn) String() string {
+func (c *stream) String() string {
 	return c.conn.RemoteAddr().String() + " -> " + c.conn.LocalAddr().String()
 }
 
-func (c *StreamConn) Key() string {
+func (c *stream) Key() string {
 	return c.String()
 }
 
-func (s *StreamConn) Close() {
-	s.closeOnce.Do(func() {
+func (s *stream) Close() {
+	s.connclose.Do(func() {
 		s.conn.Close()
 	})
+}
+
+func (s *stream) GetState() StreamState {
+	s.statemux.RLock()
+	defer s.statemux.RUnlock()
+	return s.state
+}
+
+func (s *stream) SetState(state StreamState) {
+	s.statemux.Lock()
+	defer s.statemux.Unlock()
+	s.state = state
 }

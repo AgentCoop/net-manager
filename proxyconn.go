@@ -4,40 +4,27 @@ import (
 	job "github.com/AgentCoop/go-work"
 )
 
-type ProxyConn interface {
-	Upstream() *StreamConn
-	Downstream() *StreamConn
-	ProxyReadUpstreamTask(j job.JobInterface) (job.Init, job.Run, job.Finalize)
-	ProxyReadDownstreamTask(j job.JobInterface) (job.Init, job.Run, job.Finalize)
-	ProxyWriteUpstreamTask(j job.JobInterface) (job.Init, job.Run, job.Finalize)
-	ProxyWriteDownstreamTask(j job.JobInterface) (job.Init, job.Run, job.Finalize)
-}
-
 type proxyConn struct {
 	upstreamServer *ServerNet
-	upstreamConn *StreamConn
-	downstreamConn *StreamConn
+	upstream       *stream
+	downstream     *stream
 }
 
-func (n *netManager) NewProxyConn(upstreamServer *ServerNet, downstream *StreamConn) *proxyConn {
-	p := &proxyConn{upstreamServer: upstreamServer, downstreamConn: downstream}
-	return p
+func (p *proxyConn) Upstream() *stream {
+	return p.upstream
 }
 
-func (p *proxyConn) Upstream() *StreamConn {
-	return p.upstreamConn
-}
-
-func (p *proxyConn) Downstream() *StreamConn {
-	return p.downstreamConn
+func (p *proxyConn) Downstream() *stream {
+	return p.downstream
 }
 
 func (p *proxyConn) ProxyConnectTask(j job.JobInterface) (job.Init, job.Run, job.Finalize) {
 	run := func(task *job.TaskInfo) {
-		netMngr := p.downstreamConn.connManager.netManager
+		netMngr := p.downstream.connManager.netManager
 		conn, err := netMngr.reuseOrNewConn(p.upstreamServer.TcpAddr)
 		task.Assert(err)
-		p.upstreamConn = conn
+		p.upstream = conn
+		p.upstream.dataKind = DataRawKind
 		task.Done()
 	}
 	return nil, run, nil
@@ -45,7 +32,7 @@ func (p *proxyConn) ProxyConnectTask(j job.JobInterface) (job.Init, job.Run, job
 
 func (p *proxyConn) ProxyReadUpstreamTask(j job.JobInterface) (job.Init, job.Run, job.Finalize) {
 	run := func(task *job.TaskInfo) {
-		read(p.upstreamConn, task)
+		read(p.upstream, task)
 		task.Tick()
 	}
 	return nil, run, nil
@@ -53,23 +40,26 @@ func (p *proxyConn) ProxyReadUpstreamTask(j job.JobInterface) (job.Init, job.Run
 
 func (p *proxyConn) ProxyWriteUpstreamTask(j job.JobInterface) (job.Init, job.Run, job.Finalize) {
 	run := func(task *job.TaskInfo) {
-		write(p.upstreamConn, task)
+		write(p.upstream, task)
 		task.Tick()
 	}
 	return nil, run, nil
 }
 
 func (p *proxyConn) ProxyReadDownstreamTask(j job.JobInterface) (job.Init, job.Run, job.Finalize) {
+	init := func(task *job.TaskInfo) {
+		p.downstream.dataKind = DataRawKind
+	}
 	run := func(task *job.TaskInfo) {
-		read(p.downstreamConn, task)
+		read(p.downstream, task)
 		task.Tick()
 	}
-	return nil, run, nil
+	return init, run, nil
 }
 
 func (p *proxyConn) ProxyWriteDownstreamTask(j job.JobInterface) (job.Init, job.Run, job.Finalize) {
 	run := func(task *job.TaskInfo) {
-		write(p.downstreamConn, task)
+		write(p.downstream, task)
 		task.Tick()
 	}
 	return nil, run, nil

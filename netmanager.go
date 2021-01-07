@@ -2,7 +2,6 @@ package netmanager
 
 import (
 	"fmt"
-	"github.com/AgentCoop/go-work"
 	"github.com/google/go-cmp/cmp"
 	"net"
 	"sync"
@@ -12,20 +11,10 @@ const (
 	DefaultReadBufLen = 4096
 )
 
-// Governs inbound/outbound connections for an TCP endpoint
-type ConnManager interface {
-	ConnectTask(job.JobInterface) (job.Init, job.Run, job.Finalize)
-	AcceptTask(job.JobInterface) (job.Init, job.Run, job.Finalize)
-	//ReadTask(job.JobInterface) (job.Init, job.Run, job.Finalize)
-	//WriteTask(job.JobInterface) (job.Init, job.Run, job.Finalize)
-	GetNetworkManager() NetManager
-}
-
 type NetManager interface {
-	NewProxyConn(upstreamServer *ServerNet, downstream *StreamConn) *proxyConn
 }
 
-type streamMap map[string]*StreamConn
+type streamMap map[string]*stream
 type listenAddrMap map[string]net.Listener
 
 type perfmetrics struct {
@@ -63,17 +52,13 @@ func (mngr *connManager) GetNetworkManager() NetManager {
 	return mngr.netManager
 }
 
-func (n *netManager) reuseOrNewConn(endpoint *net.TCPAddr) (*StreamConn, error) {
+func (n *netManager) reuseOrNewConn(endpoint *net.TCPAddr) (*stream, error) {
 	for _, connMngr := range n.connManager {
 		if cmp.Equal(connMngr.tcpAddr, endpoint) {
 			for _, out := range connMngr.outbound {
-				if out.Available() {
-					fmt.Printf(" !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Usse idle conn\n")
-					//ConnCheck(out.conn)
+				if out.CanBeReused() {
+					fmt.Printf("Use idle connection\n")
 					out.Refresh()
-					//out.State = InuseConn
-					//n, err := out.conn.Write([]byte("hello"))
-					//fmt.Printf("done sending to upstream %d err %s", n, err)
 					return out, nil
 				}
 			}
