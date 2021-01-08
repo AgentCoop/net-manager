@@ -16,7 +16,7 @@ const (
 )
 
 const (
-	InuseConn StreamState = iota
+	InUseConn StreamState = iota
 	IdleConn
 )
 
@@ -111,6 +111,7 @@ func (s *stream) CanBeReused() bool {
 }
 
 func (s *stream) Refresh() {
+	s.SetState(InUseConn)
 	s.initChans()
 }
 

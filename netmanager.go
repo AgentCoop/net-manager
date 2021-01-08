@@ -29,12 +29,11 @@ type netManager struct {
 
 type connManager struct {
 	netManager *netManager
-	inboundMux      sync.RWMutex
-	inbound         streamMap
-	outboundMux     sync.RWMutex
-	outbound        streamMap
+	inboundLimit	int // limit number of inbound connections
+	streammapmux    sync.RWMutex
+	streammap       streamMap
 
-	ReadbufLen int32
+	readbufLen int
 	lisMap     listenAddrMap
 	network    string
 	addr       string
@@ -55,11 +54,11 @@ func (mngr *connManager) GetNetworkManager() NetManager {
 func (n *netManager) reuseOrNewConn(endpoint *net.TCPAddr) (*stream, error) {
 	for _, connMngr := range n.connManager {
 		if cmp.Equal(connMngr.tcpAddr, endpoint) {
-			for _, out := range connMngr.outbound {
-				if out.CanBeReused() {
+			for _, stream := range connMngr.streammap {
+				if stream.typ == Outbound && stream.CanBeReused() {
 					fmt.Printf("Use idle connection\n")
-					out.Refresh()
-					return out, nil
+					stream.Refresh()
+					return stream, nil
 				}
 			}
 		}
@@ -68,7 +67,7 @@ func (n *netManager) reuseOrNewConn(endpoint *net.TCPAddr) (*stream, error) {
 	conn, err := net.DialTCP(endpoint.Network(), nil, endpoint)
 	if err != nil { return nil, err }
 
-	connMngr := n.NewConnManager("", "")
+	connMngr := n.NewConnManager("", "", nil)
 	connMngr.tcpAddr = endpoint
 	stream := connMngr.NewStreamConn(conn, Outbound)
 

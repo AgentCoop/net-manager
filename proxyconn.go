@@ -1,6 +1,8 @@
 package netmanager
 
 import (
+	//"fmt"
+	"fmt"
 	job "github.com/AgentCoop/go-work"
 )
 
@@ -20,7 +22,16 @@ func (p *proxyConn) Downstream() *stream {
 
 func (p *proxyConn) ProxyConnectTask(j job.Job) (job.Init, job.Run, job.Finalize) {
 	run := func(task job.Task) {
-		netMngr := p.downstream.connManager.netManager
+		connMngr := p.downstream.connManager
+
+		if connMngr.GetConnTotalCount(InUseConn, Inbound) >= connMngr.inboundLimit {
+			j.Log(1) <- fmt.Sprintf("%s dropped, max conn limit reached", p.downstream.String())
+			p.downstream.Close()
+			j.Finish()
+			return
+		}
+
+		netMngr := connMngr.netManager
 		conn, err := netMngr.reuseOrNewConn(p.upstreamServer.TcpAddr)
 		task.Assert(err)
 		p.upstream = conn

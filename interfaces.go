@@ -9,10 +9,12 @@ type ConnManager interface {
 	ConnectTask(job.Job) (job.Init, job.Run, job.Finalize)
 	AcceptTask(job.Job) (job.Init, job.Run, job.Finalize)
 	GetNetworkManager() NetManager
+	GetConnTotalCount(state StreamState, typ ConnType) int
+	GetInboundLimit() int
 }
 
 type Stream interface {
-	Read() <-chan interface{}
+	//Read() <-chan interface{}
 	Write() chan<- interface{}
 	WriteSync() int
 	RecvDataFrame() <-chan netdataframe.DataFrame
@@ -44,6 +46,11 @@ type ProxyConn interface {
 func NewProxyConn(upstreamServer *ServerNet, downstream Stream) *proxyConn {
 	p := &proxyConn{upstreamServer: upstreamServer, downstream: downstream.(*stream)}
 	return p
+}
+
+type ConnManagerOptions struct {
+	InboundLimit	int
+	ReadbufLen		int
 }
 
 type StreamOptions struct {
