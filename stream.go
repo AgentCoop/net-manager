@@ -151,6 +151,7 @@ func (c *stream) Key() string {
 
 func (s *stream) Close() {
 	s.connclose.Do(func() {
+		s.connManager.delConn(s)
 		s.conn.Close()
 	})
 }

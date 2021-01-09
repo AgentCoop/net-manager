@@ -7,6 +7,77 @@ import (
 	"sync/atomic"
 )
 
+func readFin(stream *stream, task job.Task) {
+	fmt.Printf("close read\n")
+	mngr := stream.connManager
+	close(stream.readChan)
+	close(stream.recvDataFrameChan)
+	close(stream.recvDataFrameSyncChan)
+	close(stream.recvRawChan)
+	close(stream.recvRawSyncChan)
+	mngr.delConn(stream)
+	stream.Close()
+}
+
+func read(stream *stream, task job.Task) {
+	n, err := stream.conn.Read(stream.readbuf)
+	task.Assert(err)
+
+	atomic.AddUint64(&stream.connManager.perfmetrics.bytesReceived, uint64(n))
+	data := stream.readbuf[0:n]
+
+	switch stream.dataKind {
+	case DataFrameKind:
+		stream.frame.Capture(data)
+		if stream.frame.IsFullFrame() {
+			stream.recvDataFrameChan <- stream.frame
+			<-stream.recvDataFrameSyncChan
+		}
+		task.Tick()
+	case DataRawKind:
+		stream.recvRawChan <- data
+		<-stream.recvRawSyncChan
+		task.Tick()
+	default:
+		task.Idle()
+	}
+}
+
+func writeFin(stream *stream, task job.Task) {
+	fmt.Printf("close write\n")
+	close(stream.writeChan)
+	close(stream.writeSyncChan)
+	stream.Close()
+}
+
+func write(s *stream, task job.Task) {
+	var n int
+	var err error
+
+	select {
+	case data := <- s.writeChan:
+		task.AssertNotNil(data)
+		switch data.(type) {
+		case []byte: // raw data
+			n, err = s.conn.Write(data.([]byte))
+			task.Assert(err)
+		case nil:
+			// Handle error
+		default:
+			enc, err := s.frame.ToFrame(data)
+			task.Assert(err)
+			n, err = s.conn.Write(enc)
+			task.Assert(err)
+		}
+		// Sync with the writer
+		s.writeSyncChan <- n
+		atomic.AddUint64(&s.connManager.perfmetrics.bytesSent, uint64(n))
+		task.Tick()
+	default:
+		task.Idle()
+	}
+}
+
 func (mngr *connManager) ConnectTask(j job.Job) (job.Init, job.Run, job.Finalize) {
 	run := func(task job.Task) {
 		conn, err := net.Dial(mngr.network, mngr.addr)
@@ -47,44 +118,14 @@ func (mngr *connManager) AcceptTask(j job.Job) (job.Init, job.Run, job.Finalize)
 	return nil, run, nil
 }
 
-func readCancel(stream *stream, task job.Task) {
-	fmt.Printf("close read\n")
-	mngr := stream.connManager
-	close(stream.readChan)
-	close(stream.recvDataFrameChan)
-	close(stream.recvDataFrameSyncChan)
-	mngr.delConn(stream)
-}
-
-func read(stream *stream, task job.Task) {
-	n, err := stream.conn.Read(stream.readbuf)
-	task.Assert(err)
-
-	atomic.AddUint64(&stream.connManager.perfmetrics.bytesReceived, uint64(n))
-	data := stream.readbuf[0:n]
-
-	switch stream.dataKind {
-	case DataFrameKind:
-		stream.frame.Capture(data)
-		if stream.frame.IsFullFrame() {
-			stream.recvDataFrameChan <- stream.frame
-			<-stream.recvDataFrameSyncChan
-		}
-	case DataRawKind:
-		stream.recvRawChan <- data
-		<-stream.recvRawSyncChan
-	}
-}
-
 func (stream *stream) ReadOnStreamTask(j job.Job) (job.Init, job.Run, job.Finalize) {
 	init := func(task job.Task){
 	}
 	run := func(task job.Task) {
 		read(stream, task)
-		task.Tick()
 	}
 	fin := func(task job.Task) {
-		readCancel(stream, task)
+		readFin(stream, task)
 	}
 	return init, run, fin
 }
@@ -93,53 +134,21 @@ func ReadTask(j job.Job) (job.Init, job.Run, job.Finalize) {
 	run := func(task job.Task) {
 		s := j.GetValue().(*stream)
 		read(s, task)
-		task.Tick()
 	}
 	fin := func(task job.Task) {
 		s := j.GetValue()
 		if s == nil { return }
-		readCancel(s.(*stream), task)
+		readFin(s.(*stream), task)
 	}
 	return nil, run, fin
-}
-
-func write(s *stream, task job.Task) {
-	var n int
-	var err error
-
-	select {
-	case data := <- s.writeChan:
-		switch data.(type) {
-		case []byte: // raw data
-			n, err = s.conn.Write(data.([]byte))
-			task.Assert(err)
-		case nil:
-			// Handle error
-		default:
-			enc, err := s.frame.ToFrame(data)
-			task.Assert(err)
-			n, err = s.conn.Write(enc)
-			task.Assert(err)
-		}
-		// Sync with the writer
-		s.writeSyncChan <- n
-		atomic.AddUint64(&s.connManager.perfmetrics.bytesSent, uint64(n))
-	}
-}
-
-func writeCancel(stream *stream, task job.Task) {
-	fmt.Printf("close write\n")
-	close(stream.writeChan)
-	close(stream.writeSyncChan)
 }
 
 func (s *stream) WriteOnStreamTask(j job.Job) (job.Init, job.Run, job.Finalize) {
 	run := func(task job.Task) {
 		write(s, task)
-		task.Tick()
 	}
 	fin := func(task job.Task) {
-		writeCancel(s, task)
+		writeFin(s, task)
 	}
 	return nil, run, fin
 }
@@ -148,12 +157,11 @@ func WriteTask(j job.Job) (job.Init, job.Run, job.Finalize) {
 	run := func(task job.Task) {
 		s := j.GetValue().(*stream)
 		write(s, task)
-		task.Tick()
 	}
 	fin := func(task job.Task)  {
 		s := j.GetValue()
 		if s == nil { return }
-		writeCancel(s.(*stream), task)
+		writeFin(s.(*stream), task)
 	}
 	return nil, run, fin
 }

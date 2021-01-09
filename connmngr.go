@@ -55,9 +55,8 @@ func (mngr *connManager) delConn(s *stream) {
 	mngr.streammapmux.Lock()
 	defer mngr.streammapmux.Unlock()
 	delete(mngr.streammap, s.Key())
-	s.conn.Close()
+	//s.conn.Close()
 }
-
 
 func (mngr *connManager) GetInboundLimit() int {
 	return mngr.inboundLimit
