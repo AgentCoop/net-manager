@@ -44,7 +44,6 @@ func (p *proxyConn) ProxyConnectTask(j job.Job) (job.Init, job.Run, job.Finalize
 func (p *proxyConn) ProxyReadUpstreamTask(j job.Job) (job.Init, job.Run, job.Finalize) {
 	run := func(task job.Task) {
 		read(p.upstream, task)
-		task.Tick()
 	}
 	return nil, run, nil
 }
@@ -52,7 +51,6 @@ func (p *proxyConn) ProxyReadUpstreamTask(j job.Job) (job.Init, job.Run, job.Fin
 func (p *proxyConn) ProxyWriteUpstreamTask(j job.Job) (job.Init, job.Run, job.Finalize) {
 	run := func(task job.Task) {
 		write(p.upstream, task)
-		task.Tick()
 	}
 	return nil, run, nil
 }
@@ -63,7 +61,6 @@ func (p *proxyConn) ProxyReadDownstreamTask(j job.Job) (job.Init, job.Run, job.F
 	}
 	run := func(task job.Task) {
 		read(p.downstream, task)
-		task.Tick()
 	}
 	return init, run, nil
 }
@@ -71,7 +68,6 @@ func (p *proxyConn) ProxyReadDownstreamTask(j job.Job) (job.Init, job.Run, job.F
 func (p *proxyConn) ProxyWriteDownstreamTask(j job.Job) (job.Init, job.Run, job.Finalize) {
 	run := func(task job.Task) {
 		write(p.downstream, task)
-		task.Tick()
 	}
 	return nil, run, nil
 }

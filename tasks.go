@@ -38,8 +38,6 @@ func read(stream *stream, task job.Task) {
 		stream.recvRawChan <- data
 		<-stream.recvRawSyncChan
 		task.Tick()
-	default:
-		task.Idle()
 	}
 }
 
