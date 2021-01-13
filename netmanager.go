@@ -1,7 +1,6 @@
 package netmanager
 
 import (
-	"fmt"
 	"github.com/google/go-cmp/cmp"
 	"net"
 	"sync"
@@ -56,9 +55,10 @@ func (n *netManager) reuseOrNewConn(endpoint *net.TCPAddr) (*stream, error) {
 		if cmp.Equal(connMngr.tcpAddr, endpoint) {
 			for _, stream := range connMngr.streammap {
 				if stream.typ == Outbound && stream.CanBeReused() {
-					fmt.Printf("Use idle connection\n")
 					stream.Refresh()
 					return stream, nil
+				} else {
+					connMngr.delConn(stream)
 				}
 			}
 		}

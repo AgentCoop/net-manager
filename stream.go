@@ -4,6 +4,7 @@ import (
 	netdataframe "github.com/AgentCoop/net-dataframe"
 	"net"
 	"sync"
+	"time"
 )
 
 type ConnType int
@@ -52,7 +53,7 @@ type stream struct {
 	state       StreamState
 	typ         ConnType
 	dataKind    DataKind
-	frame       netdataframe.DataFrame
+	framerecv   netdataframe.Receiver
 	readbuf     []byte
 	connclose   sync.Once
 }
@@ -154,6 +155,10 @@ func (s *stream) Close() {
 		s.connManager.delConn(s)
 		s.conn.Close()
 	})
+}
+
+func (s *stream) SetReadDeadline(time time.Time) {
+	s.conn.SetReadDeadline(time)
 }
 
 func (s *stream) GetState() StreamState {

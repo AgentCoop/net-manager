@@ -8,6 +8,8 @@ import (
 type ConnManager interface {
 	ConnectTask(job.Job) (job.Init, job.Run, job.Finalize)
 	AcceptTask(job.Job) (job.Init, job.Run, job.Finalize)
+	GetBytesSent() uint64
+	GetBytesReceived() uint64
 	GetNetworkManager() NetManager
 	GetConnTotalCount(state StreamState, typ ConnType) int
 	GetInboundLimit() int

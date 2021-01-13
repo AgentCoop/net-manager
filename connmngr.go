@@ -27,7 +27,7 @@ func (mngr *connManager) NewStreamConn(conn net.Conn, typ ConnType) *stream {
 	stream := &stream{conn: conn, typ: typ, state: InUseConn}
 	stream.initChans()
 	stream.connManager = mngr
-	stream.frame = netdataframe.NewDataFrame()
+	stream.framerecv = netdataframe.NewReceiver()
 	stream.readbuf = make([]byte, mngr.readbufLen)
 	mngr.addConn(stream)
 	return stream
@@ -43,6 +43,14 @@ func (mngr *connManager) GetConnTotalCount(state StreamState, typ ConnType) int 
 		}
 	}
 	return totalcnt
+}
+
+func (mngr *connManager) GetBytesSent() uint64 {
+	return mngr.perfmetrics.bytesSent
+}
+
+func (mngr *connManager) GetBytesReceived() uint64 {
+	return mngr.perfmetrics.bytesReceived
 }
 
 func (mngr *connManager) addConn(s *stream) {

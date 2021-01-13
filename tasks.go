@@ -1,14 +1,13 @@
 package netmanager
 
 import (
-	"fmt"
 	job "github.com/AgentCoop/go-work"
+	netdataframe "github.com/AgentCoop/net-dataframe"
 	"net"
 	"sync/atomic"
 )
 
 func readFin(stream *stream, task job.Task) {
-	fmt.Printf("close read\n")
 	mngr := stream.connManager
 	close(stream.readChan)
 	close(stream.recvDataFrameChan)
@@ -28,21 +27,20 @@ func read(stream *stream, task job.Task) {
 
 	switch stream.dataKind {
 	case DataFrameKind:
-		stream.frame.Capture(data)
-		if stream.frame.IsFullFrame() {
-			stream.recvDataFrameChan <- stream.frame
+		frames, err := stream.framerecv.Capture(data)
+		task.Assert(err)
+		for _, frame := range frames {
+			stream.recvDataFrameChan <- frame
 			<-stream.recvDataFrameSyncChan
 		}
-		task.Tick()
 	case DataRawKind:
 		stream.recvRawChan <- data
 		<-stream.recvRawSyncChan
-		task.Tick()
 	}
+	task.Tick()
 }
 
 func writeFin(stream *stream, task job.Task) {
-	fmt.Printf("close write\n")
 	close(stream.writeChan)
 	close(stream.writeSyncChan)
 	stream.Close()
@@ -62,17 +60,17 @@ func write(s *stream, task job.Task) {
 		case nil:
 			// Handle error
 		default:
-			enc, err := s.frame.ToFrame(data)
+			enc, err := netdataframe.ToFrame(data)
 			task.Assert(err)
-			n, err = s.conn.Write(enc)
+			n, err = s.conn.Write(enc.GetBytes())
 			task.Assert(err)
 		}
 		// Sync with the writer
 		s.writeSyncChan <- n
 		atomic.AddUint64(&s.connManager.perfmetrics.bytesSent, uint64(n))
 		task.Tick()
-	default:
-		task.Idle()
+	//default:
+	//	task.Idle()
 	}
 }
 
