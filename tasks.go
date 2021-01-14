@@ -19,17 +19,19 @@ func readFin(stream *stream, task job.Task) {
 }
 
 func read(stream *stream, task job.Task) {
-	n, err := stream.conn.Read(stream.readbuf)
-	task.Assert(err)
+	n, err := stream.conn.Read(stream.readbuf) // Read network data
+	task.Assert(err) // Assert that there is no error. A failed assertion will stop job execution.
 
 	atomic.AddUint64(&stream.connManager.perfmetrics.bytesReceived, uint64(n))
 	data := stream.readbuf[0:n]
-
+	// Send read data in raw stream or in data frames using special task channels
 	switch stream.dataKind {
 	case DataFrameKind:
 		frames, err := stream.framerecv.Capture(data)
 		task.Assert(err)
 		for _, frame := range frames {
+			// Ping/Pong synchronization. Send a frame to the channel and wait for a notification from another task
+			// that it was processed.
 			stream.recvDataFrameChan <- frame
 			<-stream.recvDataFrameSyncChan
 		}
@@ -37,6 +39,7 @@ func read(stream *stream, task job.Task) {
 		stream.recvRawChan <- data
 		<-stream.recvRawSyncChan
 	}
+	// Tick and wait for new data
 	task.Tick()
 }
 
@@ -51,14 +54,12 @@ func write(s *stream, task job.Task) {
 	var err error
 
 	select {
-	case data := <- s.writeChan:
+	case data := <- s.writeChan: // Some task "asked" us to send network data
 		task.AssertNotNil(data)
 		switch data.(type) {
 		case []byte: // raw data
 			n, err = s.conn.Write(data.([]byte))
 			task.Assert(err)
-		case nil:
-			// Handle error
 		default:
 			enc, err := netdataframe.ToFrame(data)
 			task.Assert(err)
@@ -66,14 +67,13 @@ func write(s *stream, task job.Task) {
 			task.Assert(err)
 		}
 		// Sync with the writer
-		s.writeSyncChan <- n
+		s.writeSyncChan <- n // Tell that task that we are done sending data
 		atomic.AddUint64(&s.connManager.perfmetrics.bytesSent, uint64(n))
 		task.Tick()
-	//default:
-	//	task.Idle()
 	}
 }
 
+// Serves as an oneshot task to establish a TCP connection to the target host
 func (mngr *connManager) ConnectTask(j job.Job) (job.Init, job.Run, job.Finalize) {
 	run := func(task job.Task) {
 		conn, err := net.Dial(mngr.network, mngr.addr)
@@ -83,7 +83,9 @@ func (mngr *connManager) ConnectTask(j job.Job) (job.Init, job.Run, job.Finalize
 		j.SetValue(stream)
 		mngr.addConn(stream)
 
-		stream.newConnChan <- job.DoneSig
+		// Notify other tasks that connection was successfully established
+		stream.newConnChan <- job.NotifySig
+		// Finish task execution and kick off execution of other tasks.
 		task.Done()
 	}
 	return nil, run, nil
@@ -108,7 +110,7 @@ func (mngr *connManager) AcceptTask(j job.Job) (job.Init, job.Run, job.Finalize)
 		j.SetValue(ac)
 		mngr.addConn(ac)
 
-		ac.newConnChan <- job.DoneSig
+		ac.newConnChan <- job.NotifySig
 		task.Done()
 	}
 	return nil, run, nil
